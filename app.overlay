@@ -1,96 +1,108 @@
 /*
- * 蓝牙小键盘 - devicetree overlay
+ * 蓝牙小键盘 - devicetree overlay（对齐参考工程 keyboard）
  *
  * 包含：
- *   - EC11 编码器（gpio-qdec）
- *   - IP5306 PMIC（I2C0，地址 0x75）
- *   - 电池电压 ADC（AIN7 / P0.31）
+ *   - EC11 编码器（硬件 QDEC：qdec0，A=P0.10 B=P1.06）
+ *   - IP5306 PMIC（I2C1，地址 0x75，PPI/GPIOTE 硬件保活）
+ *   - 电池电压（voltage-divider 传感器，AIN7 / P0.31，BAT_ADC_EN=P0.09）
  *   - NFC 引脚释放为 GPIO
  */
 
 #include <zephyr/dt-bindings/gpio/gpio.h>
-#include <zephyr/dt-bindings/input/input-event-codes.h>
 #include <zephyr/dt-bindings/pinctrl/nrf-pinctrl.h>
 #include <zephyr/dt-bindings/adc/adc.h>
 #include <zephyr/dt-bindings/adc/nrf-adc.h>
 
 / {
-	battery_volt: battery-volt {
-		compatible = "battery-voltage";
-		io-channels = <&adc 0>;
-	};
-
-	encoder: encoder {
-		compatible = "gpio-qdec";
-		status = "okay";
-
-		/* A、B 两相；公共端接地，使用内部上拉 */
-		gpios = <&gpio0 10 (GPIO_PULL_UP | GPIO_ACTIVE_HIGH)>,  /* A 相 EC11A = P0.10 */
-			<&gpio1 6  (GPIO_PULL_UP | GPIO_ACTIVE_HIGH)>;  /* B 相 EC11B = P1.06 */
-
-		/* 每累计 4 步上报 1 次 → 事件值即卡点数 */
-		steps-per-period = <4>;
-		zephyr,axis = <INPUT_REL_WHEEL>;
-
-		/* 100nF + 13kΩ 内部上拉 ≈ RC 1.3ms，采样取 1ms（初值，实测微调） */
-		sample-time-us = <1000>;
-		idle-timeout-ms = <200>;
+	/* 电池电压分压采样（voltage-divider 传感器驱动）：
+	 * R6(100k) + R8(100k) -> 采中间点，倍率为 full/output = 2
+	 * BAT_ADC_EN = P0.09（NF1 释放为 GPIO），高有效使能分压网络
+	 */
+	vbatt: vbatt {
+		compatible = "voltage-divider";
+		io-channels = <&adc 7>;
+		output-ohms = <100000>;
+		full-ohms = <200000>;
+		power-gpios = <&gpio0 9 GPIO_ACTIVE_HIGH>;
+		power-on-sample-delay-us = <15000>;
 	};
 };
 
-/* 释放 NFC 引脚 P0.09 / P0.10 为普通 GPIO（Zephyr >= 3.5 新机制） */
 &uicr {
 	nfct-pins-as-gpios;
 };
 
-/* I2C0：SDA=P1.00，SCL=P0.24 */
 &pinctrl {
-	i2c0_default: i2c0_default {
+	i2c1_default: i2c1_default {
 		group1 {
 			psels = <NRF_PSEL(TWIM_SDA, 1, 0)>,
 				<NRF_PSEL(TWIM_SCL, 0, 24)>;
 		};
 	};
 
-	i2c0_sleep: i2c0_sleep {
+	i2c1_sleep: i2c1_sleep {
 		group1 {
 			psels = <NRF_PSEL(TWIM_SDA, 1, 0)>,
 				<NRF_PSEL(TWIM_SCL, 0, 24)>;
 			low-power-enable;
 		};
 	};
+
+	qdec_default: qdec_default {
+		group1 {
+			psels = <NRF_PSEL(QDEC_A, 0, 10)>,
+				<NRF_PSEL(QDEC_B, 1, 6)>;
+			bias-pull-up;
+		};
+	};
+
+	qdec_sleep: qdec_sleep {
+		group1 {
+			psels = <NRF_PSEL(QDEC_A, 0, 10)>,
+				<NRF_PSEL(QDEC_B, 1, 6)>;
+			low-power-enable;
+		};
+	};
 };
 
-&i2c0 {
+&i2c1 {
+	compatible = "nordic,nrf-twim";
 	status = "okay";
 	clock-frequency = <100000>;
-	pinctrl-0 = <&i2c0_default>;
-	pinctrl-1 = <&i2c0_sleep>;
+	pinctrl-0 = <&i2c1_default>;
+	pinctrl-1 = <&i2c1_sleep>;
 	pinctrl-names = "default", "sleep";
 
 	ip5306: ip5306@75 {
 		compatible = "injoinic,ip5306";
 		reg = <0x75>;
-
-		/* IP5306 wakeup/keepalive：P0.22，active low */
 		wakeup-gpios = <&gpio0 22 GPIO_ACTIVE_LOW>;
-		keepalive-period-ms = <8000>;
-		keepalive-pulse-ms = <500>;
+		keep-alive-interval-ms = <15000>;
+		pulse-width-ms = <50>;
 	};
 };
 
-/* 电池电压采样：BAT_ADC = P0.31 / AIN7 */
+&qdec0 {
+	led-pre = <0>;
+	steps = <80>;
+	nordic,period = "SAMPLEPER_2048US";
+	pinctrl-0 = <&qdec_default>;
+	pinctrl-1 = <&qdec_sleep>;
+	pinctrl-names = "default", "sleep";
+	status = "okay";
+};
+
 &adc {
 	status = "okay";
 	#address-cells = <1>;
 	#size-cells = <0>;
 
-	channel@0 {
-		reg = <0>;
-		zephyr,gain = "ADC_GAIN_1_4";
+	channel@7 {
+		reg = <7>;
+		zephyr,gain = "ADC_GAIN_1_6";
 		zephyr,reference = "ADC_REF_INTERNAL";
-		zephyr,input-positive = <NRF_ADC_AIN7>;
-		zephyr,resolution = <12>;
 		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,input-positive = <NRF_SAADC_AIN7>;
+		zephyr,resolution = <14>;
 	};
 };

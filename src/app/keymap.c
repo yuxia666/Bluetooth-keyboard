@@ -1,73 +1,69 @@
 /*
- * 蓝牙小键盘 - 按键/编码器输出模块（Route B）
+ * 蓝牙小键盘 - 按键/HID 输出日志模块
  *
- * 订阅：
- *   button_event  -> 矩阵按键 RTT 打印（保持原“按下打印”行为）
- *   encoder_event -> 编码器旋转 RTT 打印（方向 + 卡点数 + 角度）
+ * 对齐参考 keyboard 工程：按键消费由 keyboard_core.c 负责（构建 HID 报告），
+ * 本模块作为消费者在 RTT 打印：
+ *   - button_event      -> 矩阵按键中文名（保留原日志行为）
+ *   - hid_key_event     -> HID 键盘报告（boot/NKRO 字节）
+ *   - hid_consumer_event -> HID 消费控制报告（音量等 usage）
  */
 
 #include <stdbool.h>
 #include <stdint.h>
 
 #include <zephyr/kernel.h>
-#include <zephyr/sys/printk.h>
+#include <zephyr/logging/log.h>
 
 #include <app_event_manager.h>
 #include <caf/events/button_event.h>
 #include <caf/key_id.h>
 
-#include "encoder_event.h"
+#include "events/hid_key_event.h"
+#include "events/hid_consumer_event.h"
+
+LOG_MODULE_REGISTER(keymap, CONFIG_LOG_DEFAULT_LEVEL);
 
 #define ROW_COUNT 6
 #define COL_COUNT 4
-
-#define DEGREES_PER_DETENT 18
 
 /* 6 行 x 4 列键名表（行=ROW0..ROW5，列=COL0..COL3） */
 static const char * const key_names[ROW_COUNT][COL_COUNT] = {
 	/* COL0       COL1    COL2    COL3 */
 	{ NULL,       NULL,   NULL,   "旋钮按键" },     /* ROW0 */
-	{ "数字锁定", "除号", "乘号", "减号" },         /* ROW1 */
+	{ "数字锁定", "乘号", "除号", "减号" },         /* ROW1: NumLk, *, /, - */
 	{ "7",        "8",    "9",    NULL },           /* ROW2 */
 	{ "4",        "5",    "6",    "加号" },         /* ROW3 */
 	{ "1",        "2",    "3",    NULL },           /* ROW4 */
 	{ "0",        "小数点", NULL,  "回车" },         /* ROW5 */
 };
 
-static int32_t knob_angle_deg;
-
 static bool handle_button_event(const struct button_event *evt)
 {
 	uint8_t col = KEY_COL(evt->key_id);
 	uint8_t row = KEY_ROW(evt->key_id);
-	const char *name = key_names[row][col];
+	const char *name = (row < ROW_COUNT && col < COL_COUNT)
+			   ? key_names[row][col] : NULL;
 
-	/* 保持原有行为：只在按下时打印 */
-	if (!evt->pressed) {
-		return false;
-	}
-
-	if (name != NULL) {
-		printk("[%u,%u]%s\n", row, col, name);
-	} else {
-		printk("[%u,%u]未定义键\n", row, col);
-	}
+	LOG_INF("[%u,%u]%s%s", row, col,
+		name != NULL ? name : "未定义键",
+		evt->pressed ? " 按下" : " 释放");
 
 	return false;
 }
 
-static bool handle_encoder_event(const struct encoder_event *evt)
+static bool handle_hid_key_event(const struct hid_key_event *evt)
 {
-	int32_t delta = (int32_t)evt->detents * DEGREES_PER_DETENT *
-			(evt->cw ? 1 : -1);
+	LOG_INF("HID key report proto=%s size=%u",
+		evt->protocol == HID_PROTOCOL_BOOT ? "boot" : "nkro",
+		evt->report_size);
+	LOG_HEXDUMP_INF(evt->report, evt->report_size, "key report");
 
-	knob_angle_deg += delta;
+	return false;
+}
 
-	printk("旋钮旋转 %s %u 卡点 (本次 %s%d°, 累计 %s%d°)\n",
-	       evt->cw ? "顺时针" : "逆时针",
-	       evt->detents,
-	       delta >= 0 ? "+" : "", delta,
-	       knob_angle_deg >= 0 ? "+" : "", knob_angle_deg);
+static bool handle_hid_consumer_event(const struct hid_consumer_event *evt)
+{
+	LOG_INF("HID consumer usage=0x%04x", evt->usage);
 
 	return false;
 }
@@ -78,8 +74,12 @@ static bool app_event_handler(const struct app_event_header *aeh)
 		return handle_button_event(cast_button_event(aeh));
 	}
 
-	if (is_encoder_event(aeh)) {
-		return handle_encoder_event(cast_encoder_event(aeh));
+	if (is_hid_key_event(aeh)) {
+		return handle_hid_key_event(cast_hid_key_event(aeh));
+	}
+
+	if (is_hid_consumer_event(aeh)) {
+		return handle_hid_consumer_event(cast_hid_consumer_event(aeh));
 	}
 
 	return false;
@@ -87,4 +87,5 @@ static bool app_event_handler(const struct app_event_header *aeh)
 
 APP_EVENT_LISTENER(keymap, app_event_handler);
 APP_EVENT_SUBSCRIBE(keymap, button_event);
-APP_EVENT_SUBSCRIBE(keymap, encoder_event);
+APP_EVENT_SUBSCRIBE(keymap, hid_key_event);
+APP_EVENT_SUBSCRIBE(keymap, hid_consumer_event);

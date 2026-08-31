@@ -1,26 +1,28 @@
-# SPDX-License-Identifier: Apache-2.0
-
-description: Injoinic IP5306 power management IC
+description: IP5306 Power Management IC
 
 compatible: "injoinic,ip5306"
 
-include: i2c-device.yaml
+include: [i2c-device.yaml]
 
 properties:
   wakeup-gpios:
     type: phandle-array
-    required: true
+    required: false
     description: |
-      IP5306 wakeup/keepalive pin. Active low.
+      GPIO connected to IP5306 KEY pin.
+      When configured, the driver generates periodic low pulses
+      to prevent IP5306 from entering light-load auto-shutdown.
 
-  keepalive-period-ms:
+  keep-alive-interval-ms:
     type: int
-    required: true
-    description: |
-      Keepalive pulse period in milliseconds.
+    required: false
+    default: 15000
+    description: Interval between KEY keep-awive pulses (ms).
 
-  keepalive-pulse-ms:
+  pulse-width-ms:
     type: int
-    required: true
+    required: false
+    default: 50
     description: |
-      Keepalive pulse width in milliseconds.
+      Width of KEY low pulse (ms). Must be > 30ms per IP5306
+      short-press debounce spec.

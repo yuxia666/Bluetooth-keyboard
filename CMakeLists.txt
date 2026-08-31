@@ -2,19 +2,22 @@
 
 cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
-project(blinky)
+project(keypad)
 
 zephyr_include_directories(include)
 
 target_sources(app PRIVATE
   src/main.c
-  src/app/matrix.c
   src/app/encoder.c
-  src/app/encoder_event.c
+  src/app/power_mgr.c
+  src/app/keyboard_core.c
   src/app/keymap.c
-  src/app/power_state_logger.c
-  src/app/button_wake.c
-  src/app/battery_event.c
-  src/app/battery_module.c
+  src/events/battery_event.c
+  src/events/encoder_event.c
+  src/events/hid_key_event.c
+  src/events/hid_consumer_event.c
+  src/events/set_protocol_event.c
+  src/events/bitmap_cfg_event.c
+  src/events/funckey_report_event.c
   drivers/ip5306/ip5306.c
 )

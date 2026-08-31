@@ -1,41 +1,42 @@
 /*
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
 #ifndef _DRIVERS_IP5306_H_
 #define _DRIVERS_IP5306_H_
 
 #include <stdbool.h>
-#include <stdint.h>
 #include <zephyr/device.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** @brief IP5306 charge/full status. */
-struct ip5306_status {
-	/** True if battery is being charged. */
-	bool charging;
-	/** True if battery is full. */
-	bool full;
+/** @brief IP5306 charging state. */
+enum ip5306_charge_state {
+	IP5306_CHARGE_DISABLED,
+	IP5306_CHARGE_ACTIVE,
+	IP5306_CHARGE_FULL,
 };
 
-/**
- * @brief Initialize the IP5306 PMIC driver and start hardware keepalive.
- *
- * @return 0 on success, negative error code on failure.
- */
-int ip5306_init(void);
+/** @brief Get charging state. */
+int ip5306_charge_status(const struct device *dev,
+			  enum ip5306_charge_state *state);
 
-/**
- * @brief Read IP5306 charging/full status.
- *
- * @param[out] status Status output.
- *
- * @return 0 on success, negative error code on failure.
- */
-int ip5306_get_status(struct ip5306_status *status);
+/** @brief Quick check: is charging active? */
+int ip5306_is_charging(const struct device *dev, bool *charging);
+
+/** @brief Quick check: is battery full? */
+int ip5306_is_full(const struct device *dev, bool *full);
+
+/** @brief Manually trigger one KEY keep-alive pulse. */
+int ip5306_wakeup(const struct device *dev);
+
+/** @brief Suspend keep-alive (called on power_down). */
+void ip5306_suspend(const struct device *dev);
+
+/** @brief Resume keep-alive (called on wake_up). */
+void ip5306_resume(const struct device *dev);
 
 #ifdef __cplusplus
 }
