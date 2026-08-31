@@ -1,0 +1,10 @@
+identifier: DEMO01_BINKY/nrf52840
+name: DEMO01_BINKY TEST
+vendor: LZA
+type: mcu
+arch: arm
+ram: 256
+flash: 1024
+toolchain:
+  - zephyr
+supported: []

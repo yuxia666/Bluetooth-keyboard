@@ -1,0 +1,38 @@
+/*
+ * 蓝牙小键盘 - EC11 编码器（路线 A，overlay）
+ *
+ * 硬件：
+ *   EC11A = P0.10（NFC2，需通过 &uicr 释放为 GPIO）
+ *   EC11B = P1.06
+ *   公共端 = GND，A/B 使用内部上拉，板上有 100nF 滤波。
+ *
+ * 参数：
+ *   20 卡点 / 圈 = 80 步 / 圈
+ *   1 卡点 = 4 步，steps-per-period = <4>
+ */
+
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+
+/ {
+	encoder: encoder {
+		compatible = "gpio-qdec";
+		status = "okay";
+
+		/* A、B 两相；公共端接地，使用内部上拉 */
+		gpios = <&gpio0 10 (GPIO_PULL_UP | GPIO_ACTIVE_HIGH)>,  /* A 相 EC11A = P0.10 */
+			<&gpio1 6  (GPIO_PULL_UP | GPIO_ACTIVE_HIGH)>;  /* B 相 EC11B = P1.06 */
+
+		/* 每累计 4 步上报 1 次 → 事件值即卡点数 */
+		steps-per-period = <4>;
+		zephyr,axis = <INPUT_REL_WHEEL>;
+
+		/* 100nF + 13kΩ 内部上拉 ≈ RC 1.3ms，采样取 1ms（初值，实测微调） */
+		sample-time-us = <1000>;
+		idle-timeout-ms = <200>;
+	};
+};
+
+/* 释放 NFC 引脚 P0.09 / P0.10 为普通 GPIO（Zephyr >= 3.5 新机制） */
+&uicr {
+	nfct-pins-as-gpios;
+};

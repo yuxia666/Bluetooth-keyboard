@@ -1,0 +1,5 @@
+board:
+  name: DEMO01_BINKY
+  vendor: LZA
+  socs:
+    - name: nrf52840
