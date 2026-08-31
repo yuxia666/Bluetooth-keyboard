@@ -10,4 +10,6 @@ target_sources(app PRIVATE
   src/app/encoder.c
   src/app/encoder_event.c
   src/app/keymap.c
+  src/app/power_state_logger.c
+  src/app/button_wake.c
 )
