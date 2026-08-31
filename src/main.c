@@ -1,8 +1,8 @@
 /*
- * 蓝牙小键盘 - 主程序（Route B + CAF Power Manager）
+ * 蓝牙小键盘 - 主程序（Route B + CAF Power Manager + 真实低功耗）
  *
- * 初始化 CAF 事件管理器并上报 main READY，
- * 之后由 matrix_scan 持续扫描按键；电源管理由 CAF Power Manager 处理。
+ * 初始化 CAF 事件管理器并上报 main READY。
+ * 正常时循环扫描矩阵；低功耗时阻塞等待矩阵列中断唤醒。
  */
 
 #include <zephyr/kernel.h>
@@ -36,8 +36,14 @@ int main(void)
 	module_set_state(MODULE_STATE_READY);
 
 	while (1) {
-		matrix_scan();
-		k_msleep(5);
+		if (matrix_is_suspended()) {
+			/* 真正低功耗：main 阻塞，等待列 GPIO 中断唤醒 */
+			matrix_wait_wake();
+			matrix_resume();
+		} else {
+			matrix_scan();
+			k_msleep(5);
+		}
 	}
 
 	return 0;

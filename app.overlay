@@ -1,19 +1,25 @@
 /*
- * 蓝牙小键盘 - EC11 编码器（路线 A，overlay）
+ * 蓝牙小键盘 - devicetree overlay
  *
- * 硬件：
- *   EC11A = P0.10（NFC2，需通过 &uicr 释放为 GPIO）
- *   EC11B = P1.06
- *   公共端 = GND，A/B 使用内部上拉，板上有 100nF 滤波。
- *
- * 参数：
- *   20 卡点 / 圈 = 80 步 / 圈
- *   1 卡点 = 4 步，steps-per-period = <4>
+ * 包含：
+ *   - EC11 编码器（gpio-qdec）
+ *   - IP5306 PMIC（I2C0，地址 0x75）
+ *   - 电池电压 ADC（AIN7 / P0.31）
+ *   - NFC 引脚释放为 GPIO
  */
 
+#include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/pinctrl/nrf-pinctrl.h>
+#include <zephyr/dt-bindings/adc/adc.h>
+#include <zephyr/dt-bindings/adc/nrf-adc.h>
 
 / {
+	battery_volt: battery-volt {
+		compatible = "battery-voltage";
+		io-channels = <&adc 0>;
+	};
+
 	encoder: encoder {
 		compatible = "gpio-qdec";
 		status = "okay";
@@ -35,4 +41,56 @@
 /* 释放 NFC 引脚 P0.09 / P0.10 为普通 GPIO（Zephyr >= 3.5 新机制） */
 &uicr {
 	nfct-pins-as-gpios;
+};
+
+/* I2C0：SDA=P1.00，SCL=P0.24 */
+&pinctrl {
+	i2c0_default: i2c0_default {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 1, 0)>,
+				<NRF_PSEL(TWIM_SCL, 0, 24)>;
+		};
+	};
+
+	i2c0_sleep: i2c0_sleep {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 1, 0)>,
+				<NRF_PSEL(TWIM_SCL, 0, 24)>;
+			low-power-enable;
+		};
+	};
+};
+
+&i2c0 {
+	status = "okay";
+	clock-frequency = <100000>;
+	pinctrl-0 = <&i2c0_default>;
+	pinctrl-1 = <&i2c0_sleep>;
+	pinctrl-names = "default", "sleep";
+
+	ip5306: ip5306@75 {
+		compatible = "injoinic,ip5306";
+		reg = <0x75>;
+
+		/* IP5306 wakeup/keepalive：P0.22，active low */
+		wakeup-gpios = <&gpio0 22 GPIO_ACTIVE_LOW>;
+		keepalive-period-ms = <8000>;
+		keepalive-pulse-ms = <500>;
+	};
+};
+
+/* 电池电压采样：BAT_ADC = P0.31 / AIN7 */
+&adc {
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	channel@0 {
+		reg = <0>;
+		zephyr,gain = "ADC_GAIN_1_4";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,input-positive = <NRF_ADC_AIN7>;
+		zephyr,resolution = <12>;
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+	};
 };

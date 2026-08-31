@@ -1,12 +1,14 @@
 /*
- * 蓝牙小键盘 - 矩阵按键扫描（Route B）
+ * 蓝牙小键盘 - 矩阵按键扫描 + 真实低功耗唤醒
  *
- * 将原有 main.c 中的手动 GPIO 矩阵扫描迁移为独立模块，
- * 扫描到按键状态变化后提交 CAF button_event。
+ * 正常模式：
+ *   行 = 输入 + 内部下拉 + 高有效
+ *   列 = 输出 + 高有效，逐列扫描。
  *
- * 矩阵：6 行 x 4 列
- * 极性：行 = 输入 + 内部下拉 + 高有效（按下为高）
- *       列 = 输出 + 高有效（扫描时逐列输出高）
+ * 低功耗唤醒模式：
+ *   列 = 全部输出高，行 = 输入 + 内部下拉 + 上升沿中断。
+ *   任意按键按下会把对应行拉高，触发行 GPIO 中断，
+ *   中断中唤醒 main 线程，main 恢复矩阵扫描后提交 wake_up_event。
  */
 
 #include <stdbool.h>
@@ -18,6 +20,7 @@
 
 #include <app_event_manager.h>
 #include <caf/events/button_event.h>
+#include <caf/events/power_event.h>
 #include <caf/key_id.h>
 
 #include "matrix.h"
@@ -46,6 +49,15 @@ static const struct gpio_dt_spec cols[COL_COUNT] = {
 	{ .port = DEVICE_DT_GET(DT_NODELABEL(gpio0)), .pin = 30, .dt_flags = GPIO_ACTIVE_HIGH }, /* COL3 P0.30 */
 };
 
+struct row_wake_data {
+	struct gpio_callback cb;
+	uint8_t row;
+};
+
+static struct row_wake_data row_wake[ROW_COUNT];
+static struct k_sem matrix_wake_sem;
+static bool suspended;
+
 static bool gpios_ready(void)
 {
 	for (int i = 0; i < ROW_COUNT; i++) {
@@ -66,6 +78,9 @@ static bool gpios_ready(void)
 int matrix_init(void)
 {
 	int ret;
+
+	k_sem_init(&matrix_wake_sem, 0, 1);
+	suspended = false;
 
 	if (!gpios_ready()) {
 		return -ENODEV;
@@ -135,3 +150,102 @@ void matrix_scan(void)
 		gpio_pin_set_dt(&cols[c], 0);
 	}
 }
+
+static void row_wake_isr(const struct device *port,
+			 struct gpio_callback *cb,
+			 gpio_port_pins_t pins)
+{
+	ARG_UNUSED(port);
+	ARG_UNUSED(pins);
+	ARG_UNUSED(cb);
+
+	/* 只唤醒 main 线程，具体按键由恢复扫描后重新识别 */
+	k_sem_give(&matrix_wake_sem);
+}
+
+static void matrix_enter_suspend(void)
+{
+	int ret;
+
+	if (suspended) {
+		return;
+	}
+
+	/* 列全部输出高，作为“扫描源”（保持与正常扫描一致的二极管方向） */
+	for (int i = 0; i < COL_COUNT; i++) {
+		gpio_pin_configure_dt(&cols[i], GPIO_OUTPUT_ACTIVE);
+	}
+
+	/* 行改为输入 + 下拉 + 上升沿中断 */
+	for (int i = 0; i < ROW_COUNT; i++) {
+		row_wake[i].row = (uint8_t)i;
+		gpio_init_callback(&row_wake[i].cb, row_wake_isr, BIT(rows[i].pin));
+		gpio_add_callback(rows[i].port, &row_wake[i].cb);
+
+		ret = gpio_pin_configure_dt(&rows[i], GPIO_INPUT | GPIO_PULL_DOWN);
+		if (ret < 0) {
+			continue;
+		}
+
+		gpio_pin_interrupt_configure_dt(&rows[i], GPIO_INT_EDGE_RISING);
+	}
+
+	suspended = true;
+}
+
+static void matrix_exit_suspend(void)
+{
+	if (!suspended) {
+		return;
+	}
+
+	/* 关闭行中断 */
+	for (int i = 0; i < ROW_COUNT; i++) {
+		gpio_pin_interrupt_configure_dt(&rows[i], GPIO_INT_DISABLE);
+		gpio_remove_callback(rows[i].port, &row_wake[i].cb);
+	}
+
+	/* 列恢复为输出低 */
+	for (int i = 0; i < COL_COUNT; i++) {
+		gpio_pin_configure_dt(&cols[i], GPIO_OUTPUT_INACTIVE);
+	}
+
+	/* 行恢复为输入 + 下拉 */
+	for (int i = 0; i < ROW_COUNT; i++) {
+		gpio_pin_configure_dt(&rows[i], GPIO_INPUT);
+	}
+
+	suspended = false;
+}
+
+bool matrix_is_suspended(void)
+{
+	return suspended;
+}
+
+void matrix_wait_wake(void)
+{
+	k_sem_take(&matrix_wake_sem, K_FOREVER);
+}
+
+void matrix_resume(void)
+{
+	if (suspended) {
+		matrix_exit_suspend();
+	}
+
+	APP_EVENT_SUBMIT(new_wake_up_event());
+}
+
+static bool app_event_handler(const struct app_event_header *aeh)
+{
+	if (is_power_down_event(aeh)) {
+		matrix_enter_suspend();
+		return false;
+	}
+
+	return false;
+}
+
+APP_EVENT_LISTENER(matrix, app_event_handler);
+APP_EVENT_SUBSCRIBE(matrix, power_down_event);

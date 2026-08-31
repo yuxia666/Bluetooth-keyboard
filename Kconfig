@@ -1,0 +1,9 @@
+# 蓝牙小键盘应用 Kconfig
+
+mainmenu "BLE keypad application"
+
+source "Kconfig.zephyr"
+
+menu "Drivers"
+rsource "drivers/ip5306/Kconfig"
+endmenu

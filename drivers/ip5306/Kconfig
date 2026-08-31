@@ -1,0 +1,17 @@
+# IP5306 PMIC driver
+
+config IP5306
+	bool "Injoinic IP5306 PMIC driver"
+	depends on I2C
+	help
+	  Driver for Injoinic IP5306 power management IC.
+
+if IP5306
+
+config IP5306_INIT_PRIORITY
+	int "IP5306 driver init priority"
+	default 80
+	help
+	  Device driver init priority.
+
+endif # IP5306

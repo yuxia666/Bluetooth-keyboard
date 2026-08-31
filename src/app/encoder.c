@@ -1,5 +1,5 @@
 /*
- * 蓝牙小键盘 - 编码器桥接模块（Route B）
+ * 蓝牙小键盘 - 编码器桥接模块（gpio-qdec）
  *
  * 订阅 gpio-qdec 的 INPUT_REL_WHEEL 事件，
  * 转换为自定义 CAF encoder_event 后提交给事件管理器。

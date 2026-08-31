@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: Injoinic IP5306 power management IC
+
+compatible: "injoinic,ip5306"
+
+include: i2c-device.yaml
+
+properties:
+  wakeup-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      IP5306 wakeup/keepalive pin. Active low.
+
+  keepalive-period-ms:
+    type: int
+    required: true
+    description: |
+      Keepalive pulse period in milliseconds.
+
+  keepalive-pulse-ms:
+    type: int
+    required: true
+    description: |
+      Keepalive pulse width in milliseconds.
