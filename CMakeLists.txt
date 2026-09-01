@@ -10,10 +10,12 @@ target_sources(app PRIVATE
   src/main.c
   src/app/encoder.c
   src/app/power_mgr.c
+  src/app/mode.c
   src/app/keyboard_core.c
   src/app/keymap.c
   src/events/battery_event.c
   src/events/encoder_event.c
+  src/events/mode_event.c
   src/events/hid_key_event.c
   src/events/hid_consumer_event.c
   src/events/set_protocol_event.c
