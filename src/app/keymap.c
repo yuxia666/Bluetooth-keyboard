@@ -20,6 +20,7 @@
 
 #include "events/hid_key_event.h"
 #include "events/hid_consumer_event.h"
+#include "events/hid_led_event.h"
 
 LOG_MODULE_REGISTER(keymap, CONFIG_LOG_DEFAULT_LEVEL);
 
@@ -53,10 +54,8 @@ static bool handle_button_event(const struct button_event *evt)
 
 static bool handle_hid_key_event(const struct hid_key_event *evt)
 {
-	LOG_INF("HID key report proto=%s size=%u",
-		evt->protocol == HID_PROTOCOL_BOOT ? "boot" : "nkro",
-		evt->report_size);
-	LOG_HEXDUMP_INF(evt->report, evt->report_size, "key report");
+	/* HID 键盘报告由 USB transport 发送，此处不再打印（避免刷屏） */
+	ARG_UNUSED(evt);
 
 	return false;
 }
@@ -64,6 +63,13 @@ static bool handle_hid_key_event(const struct hid_key_event *evt)
 static bool handle_hid_consumer_event(const struct hid_consumer_event *evt)
 {
 	LOG_INF("HID consumer usage=0x%04x", evt->usage);
+
+	return false;
+}
+
+static bool handle_hid_led_event(const struct hid_led_event *evt)
+{
+	LOG_INF("HID LED state=0x%02x", evt->led_state);
 
 	return false;
 }
@@ -82,6 +88,10 @@ static bool app_event_handler(const struct app_event_header *aeh)
 		return handle_hid_consumer_event(cast_hid_consumer_event(aeh));
 	}
 
+	if (is_hid_led_event(aeh)) {
+		return handle_hid_led_event(cast_hid_led_event(aeh));
+	}
+
 	return false;
 }
 
@@ -89,3 +99,4 @@ APP_EVENT_LISTENER(keymap, app_event_handler);
 APP_EVENT_SUBSCRIBE(keymap, button_event);
 APP_EVENT_SUBSCRIBE(keymap, hid_key_event);
 APP_EVENT_SUBSCRIBE(keymap, hid_consumer_event);
+APP_EVENT_SUBSCRIBE(keymap, hid_led_event);

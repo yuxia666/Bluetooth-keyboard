@@ -13,11 +13,16 @@ target_sources(app PRIVATE
   src/app/mode.c
   src/app/keyboard_core.c
   src/app/keymap.c
+  src/hid_scheduler.c
+  src/usb_hid_transport.c
   src/events/battery_event.c
   src/events/encoder_event.c
   src/events/mode_event.c
   src/events/hid_key_event.c
   src/events/hid_consumer_event.c
+  src/events/hid_led_event.c
+  src/events/hid_report_to_send_event.c
+  src/events/hid_report_sent_event.c
   src/events/set_protocol_event.c
   src/events/bitmap_cfg_event.c
   src/events/funckey_report_event.c

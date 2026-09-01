@@ -42,10 +42,14 @@ LOG_MODULE_REGISTER(MODULE, CONFIG_LOG_DEFAULT_LEVEL);
  * USB < 825；2.4G 825~2475；BLE >= 2475
  * （825mV = 3.3V * 1/4，2475mV = 3.3V * 3/4，与档位电压 0/1.65/3.3V 对应）
  */
-#define VOL_USB_MAX         825
 #define VOL_24G_MIN         825
-#define VOL_24G_MAX         2475
 #define VOL_BLE_MIN         2475
+
+/* 滞回带 (mV)：进入某档需越过 (边界+HYST)，退出需跌破 (边界-HYST)，
+ * 消除边界电压振荡导致的模式反复切换。
+ * 档位余量 825mV，滞回取 100mV 安全（ADC 噪声 <10mV）。
+ */
+#define VOL_HYSTERESIS      100
 
 static const struct adc_dt_spec adc_ch = ADC_DT_SPEC_GET(DT_PATH(zephyr_user));
 
@@ -56,18 +60,35 @@ static bool first_sample;
 
 static enum keyboard_mode voltage_to_mode(int32_t mv)
 {
-	if (mv < VOL_USB_MAX) {
+	switch (current_mode) {
+	case KEYBOARD_MODE_USB:
+		/* 从 USB 进入 2.4G：需越过 825+100 = 925mV */
+		if (mv >= VOL_24G_MIN + VOL_HYSTERESIS) {
+			return KEYBOARD_MODE_2_4G;
+		}
 		return KEYBOARD_MODE_USB;
-	}
-	if ((mv >= VOL_24G_MIN) && (mv <= VOL_24G_MAX)) {
-		return KEYBOARD_MODE_2_4G;
-	}
-	if (mv >= VOL_BLE_MIN) {
-		return KEYBOARD_MODE_BLE;
-	}
 
-	/* 落在阈值间隙中，保持当前模式 */
-	return current_mode;
+	case KEYBOARD_MODE_2_4G:
+		/* 从 2.4G 进入 BLE：需越过 2475+100 = 2575mV */
+		if (mv >= VOL_BLE_MIN + VOL_HYSTERESIS) {
+			return KEYBOARD_MODE_BLE;
+		}
+		/* 从 2.4G 退回 USB：需跌破 825-100 = 725mV */
+		if (mv < VOL_24G_MIN - VOL_HYSTERESIS) {
+			return KEYBOARD_MODE_USB;
+		}
+		return KEYBOARD_MODE_2_4G;
+
+	case KEYBOARD_MODE_BLE:
+		/* 从 BLE 退回 2.4G：需跌破 2475-100 = 2375mV */
+		if (mv < VOL_BLE_MIN - VOL_HYSTERESIS) {
+			return KEYBOARD_MODE_2_4G;
+		}
+		return KEYBOARD_MODE_BLE;
+
+	default:
+		return current_mode;
+	}
 }
 
 static const char *mode_str(enum keyboard_mode mode)

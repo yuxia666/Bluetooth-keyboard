@@ -32,5 +32,4 @@ APP_EVENT_INFO_DEFINE(hid_key_event,
 APP_EVENT_TYPE_DEFINE(hid_key_event,
 		      log_hid_key_event,
 		      &hid_key_event_info,
-		      APP_EVENT_FLAGS_CREATE(
-			APP_EVENT_TYPE_FLAGS_INIT_LOG_ENABLE));
+		      APP_EVENT_FLAGS_CREATE());
