@@ -13,6 +13,7 @@ target_sources(app PRIVATE
   src/app/mode.c
   src/app/keyboard_core.c
   src/app/keymap.c
+  src/app/led_strip.c
   src/hid_scheduler.c
   src/usb_hid_transport.c
   src/ble_hid_service.c
@@ -28,5 +29,7 @@ target_sources(app PRIVATE
   src/events/set_protocol_event.c
   src/events/bitmap_cfg_event.c
   src/events/funckey_report_event.c
+  src/events/theme_rgb_update_event.c
+  src/events/led_strip_en_event.c
   drivers/ip5306/ip5306.c
 )

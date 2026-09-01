@@ -12,6 +12,7 @@
 #include <zephyr/dt-bindings/pinctrl/nrf-pinctrl.h>
 #include <zephyr/dt-bindings/adc/adc.h>
 #include <zephyr/dt-bindings/adc/nrf-adc.h>
+#include <zephyr/dt-bindings/led/led.h>
 
 / {
 	/* 三模切换拨档：AIN5 = P0.29（E73 引脚8），SK-13D07-4 三档分压 0/1.65/3.3V */
@@ -36,6 +37,19 @@
 		protocol-code = "none";
 		in-report-size = <2>;
 		in-polling-period-us = <1000>;
+	};
+
+	/* WS2812 灯带别名（用于 led_strip.c 获取设备） */
+	aliases {
+		led-strip = &ws2812;
+	};
+
+	/* WS2812 供电控制（gpio-leds 方式，避免 regulator-fixed 无宏坑） */
+	rgb_pwr_en: rgb-pwr-en {
+		compatible = "gpio-leds";
+		rgb_pwr: rgb_pwr {
+			gpios = <&gpio0 13 GPIO_ACTIVE_HIGH>;
+		};
 	};
 
 	/* 电池电压分压采样（voltage-divider 传感器驱动）：
@@ -86,6 +100,21 @@
 				<NRF_PSEL(QDEC_B, 1, 6)>;
 			low-power-enable;
 		};
+		};
+
+	spi3_default: spi3_default {
+		group1 {
+			psels = <NRF_PSEL(SPIM_MOSI, 0, 20)>,
+				<NRF_PSEL(SPIM_SCK,  0, 17)>;
+		};
+	};
+
+	spi3_sleep: spi3_sleep {
+		group1 {
+			psels = <NRF_PSEL(SPIM_MOSI, 0, 20)>,
+				<NRF_PSEL(SPIM_SCK,  0, 17)>;
+			low-power-enable;
+		};
 	};
 };
 
@@ -103,6 +132,28 @@
 		wakeup-gpios = <&gpio0 22 GPIO_ACTIVE_LOW>;
 		keep-alive-interval-ms = <15000>;
 		pulse-width-ms = <50>;
+	};
+};
+
+&spi3 {
+	compatible = "nordic,nrf-spim";
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+	pinctrl-0 = <&spi3_default>;
+	pinctrl-1 = <&spi3_sleep>;
+	pinctrl-names = "default", "sleep";
+
+	ws2812: ws2812@0 {
+		compatible = "worldsemi,ws2812-spi";
+		reg = <0>;
+		spi-max-frequency = <6400000>;
+		spi-one-frame = <0x70>;
+		spi-zero-frame = <0x40>;
+		chain-length = <17>;
+		color-mapping = <LED_COLOR_ID_GREEN
+				 LED_COLOR_ID_RED
+				 LED_COLOR_ID_BLUE>;
 	};
 };
 
