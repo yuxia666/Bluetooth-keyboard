@@ -15,6 +15,7 @@ target_sources(app PRIVATE
   src/app/keymap.c
   src/hid_scheduler.c
   src/usb_hid_transport.c
+  src/ble_hid_service.c
   src/events/battery_event.c
   src/events/encoder_event.c
   src/events/mode_event.c

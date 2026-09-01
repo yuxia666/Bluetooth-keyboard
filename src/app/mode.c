@@ -58,6 +58,12 @@ static uint8_t debounce_cnt;
 static bool suspended;
 static bool first_sample;
 
+/** @brief 获取当前工作模式（供其它模块查询）。 */
+enum keyboard_mode mode_get_current(void)
+{
+	return current_mode;
+}
+
 static enum keyboard_mode voltage_to_mode(int32_t mv)
 {
 	switch (current_mode) {
@@ -130,10 +136,9 @@ static void sample_fn(struct k_work *work)
 	enum keyboard_mode new_mode;
 	int err;
 
-	if (suspended) {
-		return;
-	}
-
+	/* 挂起时也继续采样拨档：拨档切换是唤醒源，
+	 * 检测到模式变化时发布 mode_event 并主动唤醒系统。
+	 */
 	adc_sequence_init_dt(&adc_ch, &seq);
 	err = adc_read_dt(&adc_ch, &seq);
 	if (err) {
@@ -167,6 +172,15 @@ static void sample_fn(struct k_work *work)
 		debounce_cnt = 0;
 		current_mode = new_mode;
 		publish_mode(current_mode);
+
+		/* 若系统处于挂起态，模式切换需唤醒系统（如 USB→BLE 拨档） */
+		if (suspended) {
+			suspended = false;
+			k_work_cancel_delayable(&sample_work);
+			module_set_state(MODULE_STATE_READY);
+			APP_EVENT_SUBMIT(new_wake_up_event());
+			return;
+		}
 	}
 
 reschedule:
@@ -212,9 +226,9 @@ static bool app_event_handler(const struct app_event_header *aeh)
 
 	if (is_power_down_event(aeh)) {
 		if (suspended) { return false; }
-		k_work_cancel_delayable(&sample_work);
 		suspended = true;
-		module_set_state(MODULE_STATE_OFF);
+		/* 不停止采样：拨档切换需要持续检测，作为唤醒源 */
+		module_set_state(MODULE_STATE_STANDBY);
 		return false;
 	}
 

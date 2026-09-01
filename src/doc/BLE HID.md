@@ -2,11 +2,12 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | V1.0 |
+| 文档版本 | V1.1 |
 | 编制日期 | 2026-09-01 |
-| 状态 | 待确认（仅方案，未写代码） |
+| 状态 | **方案已确认，待实现**（安全基线 `ble-before`） |
 | 当前工程 | `F:\ble_key_workspace\01_code` |
 | 参考实现 | `F:\ble_key_workspace\keyboard\src\ble_hid_service.c` |
+| 回退方式 | `git reset --hard ble-before` |
 
 ---
 
@@ -30,6 +31,23 @@ BLE 模块与 USB HID 模块**同等级**：同为 `hid_report_to_send_event` �
 | BLE 档 | ⏹ usbd_disable | ✅ ble_start | ⏹ |
 
 > 与 USB 一致：`mode_event` 是唯一切换依据；低功耗 `power_down_event` 时 BLE 停止。
+
+---
+
+## 1.5 实现思路（总纲）
+
+BLE 模块**不做任何重复造轮子**：与 USB 共用同一套输入链路（keyboard_core → hid_scheduler → hid_report_to_send_event），
+BLE 只是该事件的**第二个消费者**。实现分四步：
+
+```
+① 配置层：prj.conf 补齐 BT/HIDS/BAS/Settings（裁剪，不含 NUS/MCUboot）
+② 事件层：新增 click_detector / settings_loader 配置头
+③ 传输层：移植 ble_hid_service.c（HIDS + 报告 + 连接 + 模式启停）
+④ 门控层：补强 SECURED + notify 双门控（参考工程缺陷）
+```
+
+> 关键认知：**BLE 与 USB 的差异只在"发送通道"**（bt_hids vs usbd），
+> 协议切换、LED、调度背压全部走同一套事件，实现量最小。
 
 ---
 
@@ -275,6 +293,41 @@ static const struct settings_loader_config settings_loader_config[] = {
 
 ---
 
+## 7.5 重难点（实现时重点关注）
+
+| # | 难点 | 说明 | 对策 |
+| --- | --- | --- | --- |
+| 1 | **加密+通知门控**（要求 2） | 参考工程只查 `_active_conn`，未加密/未开通知即发报告会失败或丢失 | `PEER_STATE_SECURED` + `notify_handler` 双门控 |
+| 2 | **Boot 报告转换** | BLE 端对端 Report 模式收到 8B Boot 报告时，bt_hids 需要 29B | `boot8_to_nkro()` 位图展开（参考已实现） |
+| 3 | **背压一致性** | `hid_report_sent_event` 必须与 USB 一样在发送完成/失败时都触发，否则调度层卡死 | 复用 `inp_report_done` 回调 + 错误分支补发 |
+| 4 | **模式切换竞态** | 切 USB 档瞬间 BLE 可能仍在发报告 | `ble_stop()` 幂等（`_ble_active` 标志）+ 清 `_active_conn` |
+| 5 | **绑定持久化** | 重启后需自动重连（settings 加载 bond） | `CAF_SETTINGS_LOADER` + `BT_SETTINGS` + NVS |
+| 6 | **广播启停** | 非 BLE 档必须停广播（省电、避免干扰） | `module_suspend_req(ble_adv)`（`ble_stop()`） |
+| 7 | **内存预算** | BLE 栈 + HIDS + settings 增加 RAM/Flash | 裁剪 prj.conf（去 NUS/MCUboot）；必要时增大 HEAP |
+| 8 | **RTT 调试** | 需同时看到：连接状态、报告收发、电压 | 保留 `mode`/`battery` 打印；新增 `BLE peer connected` 等日志 |
+
+---
+
+## 7.6 RTT 打印（与 USB 模式一致，验证用）
+
+BLE 模式下 RTT 应能看到（与 USB 模式同源的日志）：
+
+```
+Mode: BLE                              ← 模式切换
+BLE peer connected                     ← 连接成功
+BLE report mode entered                ← 协议（report/boot）
+[3,3]加号 按下                          ← 按键（keymap 同源）
+e:hid_report_to_send_event size=29    ← 调度层（同源）
+Battery: 4120 mV, SOC 100%            ← 电压（power_mgr 同源，每秒）
+HID LED state=0x02                     ← LED output（同源）
+旋钮: 顺时针 18°, 1 卡点               ← 编码器（同源）
+```
+
+> 全部来自既有模块（keyboard_core / power_mgr / keymap / encoder），BLE 不新增重复打印，
+> 保证"BLE 与 USB 行为一致、可对比验证"。
+
+---
+
 ## 8. 验证计划
 
 1. **广播**：BLE 档 → 手机/电脑蓝牙可见 "Mini Keyboard"；
@@ -289,14 +342,16 @@ static const struct settings_loader_config settings_loader_config[] = {
 
 ---
 
-## 9. 实施顺序（确认后）
+## 9. 实施顺序（已确认，开始执行）
 
-1. `prj.conf` 增加 BT/CAF BLE 配置；
+1. `prj.conf` 增加 BT/CAF BLE 配置（裁剪：不含 NUS/MCUboot）；
 2. 新增 `click_detector_def.h`、`settings_loader_def.h`；
-3. 移植 `ble_hid_service.c`（参考工程，含 HIDS/报告/连接/模式启停）；
+3. 移植 `ble_hid_service.c`（HIDS/报告/连接/模式启停）+ **补强 SECURED/notify 门控**；
 4. CMakeLists 挂载，编译验证；
-5. 烧录，按 §8 验证计划逐项验收；
-6. （后续）BLE NUS 私有通信、2.4G 预留。
+5. 烧录，按 §8 验证计划逐项验收（含 RTT 电压打印）；
+6. （后续）LCD 显示、灯带、时间显示（见 `未来功能预留规划.md`）。
+
+> 回退：任一步骤异常可 `git reset --hard ble-before` 回到 USB 模式完毕基线。
 
 ---
 

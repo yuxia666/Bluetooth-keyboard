@@ -24,6 +24,9 @@ struct mode_event {
 	enum keyboard_mode mode;
 };
 
+/** @brief 获取当前工作模式（供其它模块查询，定义于 mode.c）。 */
+enum keyboard_mode mode_get_current(void);
+
 APP_EVENT_TYPE_DECLARE(mode_event);
 
 #ifdef __cplusplus
