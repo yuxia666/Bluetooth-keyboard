@@ -37,8 +37,10 @@
 
 #include <zephyr/logging/log.h>
 
+#include "events/hid_channel.h"
 #include "events/hid_report_to_send_event.h"
 #include "events/hid_report_sent_event.h"
+#include "events/hid_channel_ready_event.h"
 #include "events/set_protocol_event.h"
 #include "events/hid_led_event.h"
 #include "events/mode_event.h"
@@ -106,7 +108,7 @@ static void inp_report_done(struct bt_conn *conn, void *user_data)
 {
 	ARG_UNUSED(conn);
 	ARG_UNUSED(user_data);
-	hid_report_sent_event_submit();
+	hid_report_sent_event_submit(HID_CHANNEL_BLE_SHARED);
 }
 
 static void boot8_to_nkro(uint8_t *dst, const uint8_t *src)
@@ -137,7 +139,7 @@ static void on_report_to_send(const struct hid_report_to_send_event *evt)
 	if (!_active_conn) {
 		LOG_WRN("BLE report dropped: no active conn, size=%u",
 			evt->report_size);
-		hid_report_sent_event_submit();
+		hid_report_sent_event_submit(HID_CHANNEL_BLE_SHARED);
 		return;
 	}
 
@@ -149,7 +151,7 @@ static void on_report_to_send(const struct hid_report_to_send_event *evt)
 
 	if (evt->report_size == HID_CONSUMER_SIZE) {
 		if (_peer_boot_mode) {
-			hid_report_sent_event_submit();
+			hid_report_sent_event_submit(HID_CHANNEL_BLE_SHARED);
 			return;
 		}
 		/* bt_hids manages Report ID from inp_rep->id — send payload only (2 bytes) */
@@ -158,7 +160,7 @@ static void on_report_to_send(const struct hid_report_to_send_event *evt)
 					   evt->report, HID_CONSUMER_SIZE,
 					   inp_report_done);
 		if (err) {
-			hid_report_sent_event_submit();
+			hid_report_sent_event_submit(HID_CHANNEL_BLE_SHARED);
 		}
 	} else if (evt->report_size == HID_KBD_NKRO_SIZE) {
 		/* bt_hids manages Report ID from inp_rep->id — send payload only (29 bytes) */
@@ -167,7 +169,7 @@ static void on_report_to_send(const struct hid_report_to_send_event *evt)
 					   evt->report, HID_KBD_NKRO_SIZE,
 					   inp_report_done);
 		if (err) {
-			hid_report_sent_event_submit();
+			hid_report_sent_event_submit(HID_CHANNEL_BLE_SHARED);
 		}
 	} else if (evt->report_size == HID_KBD_BOOT_SIZE) {
 		if (_peer_boot_mode) {
@@ -185,7 +187,7 @@ static void on_report_to_send(const struct hid_report_to_send_event *evt)
 						   inp_report_done);
 		}
 		if (err) {
-			hid_report_sent_event_submit();
+			hid_report_sent_event_submit(HID_CHANNEL_BLE_SHARED);
 		}
 	}
 }
@@ -256,6 +258,8 @@ static void handle_peer_connected(struct bt_conn *conn)
 	} else {
 		LOG_INF("BLE peer connected");
 	}
+	/* 通知 scheduler BLE 通道就绪 */
+	hid_channel_ready_event_submit(HID_CHANNEL_BLE_SHARED, true);
 }
 
 static void handle_peer_secured(struct bt_conn *conn)
@@ -273,6 +277,10 @@ static void handle_peer_disconnected(struct bt_conn *conn)
 	_peer_secured = false;
 	_peer_notify_on = false;
 	bt_hids_disconnected(&hids_obj, conn);
+
+	/* 通知 scheduler BLE 通道失联 + 强制释放 in_flight */
+	hid_channel_ready_event_submit(HID_CHANNEL_BLE_SHARED, false);
+	hid_report_sent_event_submit(HID_CHANNEL_BLE_SHARED);
 
 	/* 断开后解除挂起限制（允许系统正常进入低功耗） */
 	power_manager_restrict(MODULE_IDX(MODULE), POWER_MANAGER_LEVEL_MAX);
@@ -376,6 +384,11 @@ static void ble_stop(void)
 	_peer_secured = false;
 	_peer_notify_on = false;
 	_ble_active = false;
+
+	/* 通知 scheduler BLE 通道失联 + 强制释放 in_flight */
+	hid_channel_ready_event_submit(HID_CHANNEL_BLE_SHARED, false);
+	hid_report_sent_event_submit(HID_CHANNEL_BLE_SHARED);
+
 	module_set_state(MODULE_STATE_STANDBY);
 }
 

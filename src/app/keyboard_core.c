@@ -23,6 +23,7 @@
 #include "events/hid_consumer_event.h"
 #include "events/set_protocol_event.h"
 #include "events/bitmap_cfg_event.h"
+#include "events/mode_event.h"
 #include "events/funckey_report_event.h"
 
 #include <string.h>
@@ -350,6 +351,17 @@ static bool app_event_handler(const struct app_event_header *aeh)
 		return false;
 	}
 
+	if (is_mode_event(aeh)) {
+		const struct mode_event *evt = cast_mode_event(aeh);
+
+		/* 切到 USB/BLE 时重发当前 keystate 快照（对齐方案 §10） */
+		if (evt->mode == KEYBOARD_MODE_USB ||
+		    evt->mode == KEYBOARD_MODE_BLE) {
+			submit_report();
+		}
+		return false;
+	}
+
 	if (is_set_protocol_event(aeh)) {
 		const struct set_protocol_event *evt = cast_set_protocol_event(aeh);
 
@@ -385,5 +397,6 @@ APP_EVENT_SUBSCRIBE(MODULE, power_down_event);
 APP_EVENT_SUBSCRIBE(MODULE, wake_up_event);
 APP_EVENT_SUBSCRIBE(MODULE, button_event);
 APP_EVENT_SUBSCRIBE(MODULE, encoder_event);
+APP_EVENT_SUBSCRIBE(MODULE, mode_event);
 APP_EVENT_SUBSCRIBE(MODULE, set_protocol_event);
 APP_EVENT_SUBSCRIBE(MODULE, bitmap_cfg_event);

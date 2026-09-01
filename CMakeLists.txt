@@ -24,6 +24,7 @@ target_sources(app PRIVATE
   src/events/hid_led_event.c
   src/events/hid_report_to_send_event.c
   src/events/hid_report_sent_event.c
+  src/events/hid_channel_ready_event.c
   src/events/set_protocol_event.c
   src/events/bitmap_cfg_event.c
   src/events/funckey_report_event.c

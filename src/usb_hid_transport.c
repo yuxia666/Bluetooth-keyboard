@@ -29,8 +29,10 @@
 #include <zephyr/usb/class/usbd_hid.h>
 #include <zephyr/usb/class/hid.h>
 
+#include "events/hid_channel.h"
 #include "events/hid_report_to_send_event.h"
 #include "events/hid_report_sent_event.h"
+#include "events/hid_channel_ready_event.h"
 #include "events/set_protocol_event.h"
 #include "events/hid_led_event.h"
 #include "events/mode_event.h"
@@ -84,6 +86,7 @@ static void kbd_iface_ready(const struct device *dev, bool ready)
 	_kbd_iface_ready = ready;
 	if (!ready) { _kbd_in_flight = false; }
 	LOG_INF("KBD interface %s", ready ? "ready" : "suspended");
+	hid_channel_ready_event_submit(HID_CHANNEL_USB_KBD, ready);
 }
 
 static int kbd_get_report(const struct device *dev, const uint8_t type,
@@ -120,7 +123,7 @@ static void kbd_input_report_done(const struct device *dev,
 				  const uint8_t *const report)
 {
 	_kbd_in_flight = false;
-	hid_report_sent_event_submit();
+	hid_report_sent_event_submit(HID_CHANNEL_USB_KBD);
 }
 
 static void kbd_output_report(const struct device *dev, const uint16_t len,
@@ -147,6 +150,7 @@ static void consumer_iface_ready(const struct device *dev, bool ready)
 	_consumer_iface_ready = ready;
 	if (!ready) { _consumer_in_flight = false; }
 	LOG_INF("Consumer interface %s", ready ? "ready" : "suspended");
+	hid_channel_ready_event_submit(HID_CHANNEL_USB_CONSUMER, ready);
 }
 
 static int consumer_get_report(const struct device *dev, const uint8_t type,
@@ -167,7 +171,7 @@ static void consumer_input_report_done(const struct device *dev,
 				       const uint8_t *const report)
 {
 	_consumer_in_flight = false;
-	hid_report_sent_event_submit();
+	hid_report_sent_event_submit(HID_CHANNEL_USB_CONSUMER);
 }
 
 static void consumer_output_report(const struct device *dev, const uint16_t len,
@@ -292,9 +296,10 @@ static void on_report_to_send(const struct hid_report_to_send_event *evt)
 	bool *in_flight;
 	bool *iface_ready;
 	uint8_t *tx_buf;
+	enum hid_channel ch_id = evt->channel;
 
-	/* Route by report size: 2 bytes → consumer, 8/29 bytes → keyboard */
-	if (evt->report_size == CONSUMER_REPORT) {
+	/* 按 channel 路由 */
+	if (ch_id == HID_CHANNEL_USB_CONSUMER) {
 		dev = _consumer_dev;
 		in_flight = &_consumer_in_flight;
 		iface_ready = &_consumer_iface_ready;
@@ -306,13 +311,16 @@ static void on_report_to_send(const struct hid_report_to_send_event *evt)
 		tx_buf = _kbd_tx;
 	}
 
+	/* 兜底：不 ready/失败 → 提交带 channel 的 sent，防止 scheduler 冻结 */
 	if (!*iface_ready) {
+		LOG_WRN("Channel not ready (size=%u), fallback sent", evt->report_size);
+		hid_report_sent_event_submit(ch_id);
 		return;
 	}
 
 	if (*in_flight) {
-		LOG_WRN("Drop report (size=%u) while previous in flight",
-			evt->report_size);
+		LOG_WRN("Drop report (size=%u) while previous in flight", evt->report_size);
+		hid_report_sent_event_submit(ch_id);
 		return;
 	}
 
@@ -321,7 +329,7 @@ static void on_report_to_send(const struct hid_report_to_send_event *evt)
 
 	if (err) {
 		LOG_ERR("Report submit failed: %d", err);
-		hid_report_sent_event_submit();
+		hid_report_sent_event_submit(ch_id);
 	} else {
 		*in_flight = true;
 	}
@@ -367,6 +375,8 @@ static bool app_event_handler(const struct app_event_header *aeh)
 		_powered_down = true;
 		_kbd_in_flight = false;
 		_consumer_in_flight = false;
+		hid_report_sent_event_submit(HID_CHANNEL_USB_KBD);
+		hid_report_sent_event_submit(HID_CHANNEL_USB_CONSUMER);
 		module_set_state(MODULE_STATE_OFF);
 		return false;
 	}
@@ -387,10 +397,18 @@ static bool app_event_handler(const struct app_event_header *aeh)
 
 		if (evt->mode == KEYBOARD_MODE_USB) {
 			usbd_enable(&usbd_ctx);
+			/* 通知 scheduler USB 通道就绪 */
+			hid_channel_ready_event_submit(HID_CHANNEL_USB_KBD, true);
+			hid_channel_ready_event_submit(HID_CHANNEL_USB_CONSUMER, true);
 		} else {
 			usbd_disable(&usbd_ctx);
+			/* 强制释放 in_flight + 通知 scheduler 失联 */
 			_kbd_in_flight = false;
 			_consumer_in_flight = false;
+			hid_report_sent_event_submit(HID_CHANNEL_USB_KBD);
+			hid_report_sent_event_submit(HID_CHANNEL_USB_CONSUMER);
+			hid_channel_ready_event_submit(HID_CHANNEL_USB_KBD, false);
+			hid_channel_ready_event_submit(HID_CHANNEL_USB_CONSUMER, false);
 		}
 		return false;
 	}

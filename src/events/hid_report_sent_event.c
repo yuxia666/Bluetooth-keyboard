@@ -9,18 +9,24 @@
 
 static void log_hid_report_sent_event(const struct app_event_header *aeh)
 {
-	APP_EVENT_MANAGER_LOG(aeh, "report sent");
+	const struct hid_report_sent_event *evt =
+		cast_hid_report_sent_event(aeh);
+
+	APP_EVENT_MANAGER_LOG(aeh, "ch=%u", (unsigned)evt->channel);
 }
 
 static void profile_hid_report_sent_event(struct log_event_buf *buf,
 					  const struct app_event_header *aeh)
 {
-	nrf_profiler_log_encode_uint8(buf, 0);
+	const struct hid_report_sent_event *evt =
+		cast_hid_report_sent_event(aeh);
+
+	nrf_profiler_log_encode_uint8(buf, evt->channel);
 }
 
 APP_EVENT_INFO_DEFINE(hid_report_sent_event,
 		      ENCODE(NRF_PROFILER_ARG_U8),
-		      ENCODE("dummy"),
+		      ENCODE("channel"),
 		      profile_hid_report_sent_event);
 
 APP_EVENT_TYPE_DEFINE(hid_report_sent_event,
